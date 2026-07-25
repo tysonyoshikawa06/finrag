@@ -1,4 +1,4 @@
-"""Produces 5 JSON messages to Kafka, consumes them back, and verifies round-trip
+"""Produces 5 JSON messages to mock Kafka topic, consumes them back, and verifies round-trip
 
 Run with: uv run python infra/smoke_test_kafka.py
 Requires: Kafka running on localhost:29092 (start with 'make up')
@@ -8,12 +8,15 @@ import json
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
 
-from confluent_kafka import Consumer, Producer
-from confluent_kafka.admin import AdminClient
+from confluent_kafka import Consumer, KafkaError, KafkaException, Producer, TopicPartition
+from confluent_kafka.admin import AdminClient, NewTopic
 
 BOOTSTRAP_SERVERS = "localhost:29092"
-TOPIC = "transactions"
+REAL_TOPIC = "transactions" # the app's real topic
+SMOKE_TOPIC = "smoke-test" # disposable topic for testing
+
 
 def wait_for_kafka(timeout=30):
     """Block until Kafka is reachable or timeout expires"""
@@ -28,21 +31,66 @@ def wait_for_kafka(timeout=30):
             time.sleep(1)
     return False
 
+
+def real_topic_exists():
+    """Confirm the app's real topic was created by kafka-init"""
+    admin = AdminClient({"bootstrap.servers": BOOTSTRAP_SERVERS})
+    metadata = admin.list_topics(timeout=5)
+    return REAL_TOPIC in metadata.topics
+
+
+def ensure_smoke_topic():
+    """Create the dedicated smoke-test topic if it doesn't already exist (idempotent)"""
+    admin = AdminClient({"bootstrap.servers": BOOTSTRAP_SERVERS})
+    future = admin.create_topics([NewTopic(SMOKE_TOPIC, num_partitions=1, replication_factor=1)])[SMOKE_TOPIC]
+    try:
+        future.result()
+    except KafkaException as e:
+        if e.args[0].code() != KafkaError.TOPIC_ALREADY_EXISTS:
+            raise
+
+def cleanup_smoke_topic():
+    """Purge every message from the smoke-test topic so the next run starts clean
+
+    Truncates via delete_records instead of deleting/recreating the topic, so there's
+    no create-after-delete race with a future run.
+    """
+    tp = TopicPartition(SMOKE_TOPIC, 0)
+    consumer = Consumer({"bootstrap.servers": BOOTSTRAP_SERVERS, "group.id": f"smoke-test-cleanup-{uuid.uuid4()}"})
+    try:
+        _low, high = consumer.get_watermark_offsets(tp, timeout=5, cached=False)
+    finally:
+        consumer.close()
+
+    if high <= 0:
+        return # nothing produced yet
+
+    admin = AdminClient({"bootstrap.servers": BOOTSTRAP_SERVERS})
+    tp.offset = high
+    admin.delete_records([tp])[tp].result()
+
+
 def make_messages(n=5):
-    """Generate n sample transaction messages with unique IDs"""
+    """Generate n sample transaction messages"""
+    now = datetime.now(timezone.utc).isoformat()
     return [
         {
             "transaction_id": str(uuid.uuid4()),
+            "event_timestamp": now,
+            "merchant": "smoke_test_merchant",
+            "method": "card",
             "amount": round(10.0 + i * 25.50, 2),
-            "currency": "USD",
-            "merchant": f"merchant_{i}",
-            "status": "completed",
+            "status": "success",
+            "gateway": "stripe-proxy",
+            "error_text": None,
+            "card_bin": "411111",
         }
         for i in range(n)
     ]
 
+
 def produce(messages):
-    """Send each message as JSON to the transactions topic
+    """Send each message as JSON to the smoke-test topic
 
     producer.produce() is async. producer.flush() blocks until all queued
     messages are delivered (or the timeout expires). The return value is the
@@ -52,7 +100,7 @@ def produce(messages):
 
     for msg in messages:
         producer.produce(
-            topic=TOPIC,
+            topic=SMOKE_TOPIC,
             value=json.dumps(msg).encode("utf-8"),
         )
 
@@ -61,11 +109,11 @@ def produce(messages):
         print(f"FAIL: {remaining} messages were not delivered")
         sys.exit(1)
 
-    print(f"Produced {len(messages)} messages to '{TOPIC}'")
+    print(f"Produced {len(messages)} messages to '{SMOKE_TOPIC}'")
 
 
-def consume(expected_count=5, timeout=15):
-    """Read messages from the topic and return them as parsed dicts
+def consume(expected_ids, timeout=15):
+    """Read from the smoke-test topic until every expected transaction_id is seen
 
     Key settings:
     - group.id: each consumer group tracks its own offsets. We use a random ID
@@ -80,21 +128,23 @@ def consume(expected_count=5, timeout=15):
             "auto.offset.reset": "earliest",
         }
     )
-    consumer.subscribe([TOPIC])
+    consumer.subscribe([SMOKE_TOPIC])
 
-    received = []
+    received = {}
     deadline = time.time() + timeout
-    while len(received) < expected_count and time.time() < deadline:
+    while len(received) < len(expected_ids) and time.time() < deadline:
         msg = consumer.poll(timeout=1.0)
         if msg is None:
             continue
         if msg.error():
             print(f"Consumer error: {msg.error()}")
             continue
-        received.append(json.loads(msg.value().decode("utf-8")))
+        event = json.loads(msg.value().decode("utf-8"))
+        if event.get("transaction_id") in expected_ids:
+            received[event["transaction_id"]] = event
 
     consumer.close()
-    return received
+    return list(received.values())
 
 
 def main():
@@ -104,32 +154,38 @@ def main():
         sys.exit(1)
     print("Kafka is ready.\n")
 
-    # Produce
-    messages = make_messages(5)
-    produce(messages)
-
-    # Consume
-    print("Consuming messages...")
-    received = consume(expected_count=5)
-    print(f"Received {len(received)} messages\n")
-
-    # Cross reference
-    sent_ids = {m["transaction_id"] for m in messages}
-    recv_ids = {m["transaction_id"] for m in received}
-
-    if sent_ids == recv_ids:
-        print("PASS - all 5 messages round-tripped successfully:")
-        for msg in received:
-            print(f"  {msg['transaction_id'][:8]}... {msg['merchant']:>12}  ${msg['amount']:.2f}")
-    else:
-        missing = sent_ids - recv_ids
-        extra = recv_ids - sent_ids
-        print("FAIL - message mismatch:")
-        if missing:
-            print(f"  Not received: {missing}")
-        if extra:
-            print(f"  Unexpected:   {extra}")
+    if not real_topic_exists():
+        print(f"FAIL: '{REAL_TOPIC}' topic not found (kafka-init may not have run)")
         sys.exit(1)
+    print(f"'{REAL_TOPIC}' topic exists.\n")
+
+    ensure_smoke_topic()
+    try:
+        # Produce
+        messages = make_messages(5)
+        sent_ids = {m["transaction_id"] for m in messages}
+        produce(messages)
+
+        # Consume
+        print("Consuming messages...")
+        received = consume(expected_ids=sent_ids)
+        print(f"Received {len(received)} messages\n")
+
+        recv_ids = {m["transaction_id"] for m in received}
+
+        if sent_ids == recv_ids:
+            print("PASS - all 5 messages round-tripped successfully:")
+            for msg in received:
+                print(f"  {msg['transaction_id'][:8]}... {msg['merchant']:>12}  ${msg['amount']:.2f}")
+        else:
+            missing = sent_ids - recv_ids
+            print("FAIL - message mismatch:")
+            print(f"  Not received: {missing}")
+            sys.exit(1)
+    finally:
+        # Cleanup
+        cleanup_smoke_topic()
+
 
 if __name__ == "__main__":
     main()
