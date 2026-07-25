@@ -1,4 +1,4 @@
-.PHONY: up down smoke smoke-db logs produce watch consume inject-status inject-clear db-count freshness embed-demo search-demo mcp mcp-dev chat demo eval-run eval-grade eval-report eval-recall eval-isolation
+.PHONY: up down smoke-kafka smoke-db logs produce watch consume inject-status inject-clear db-count freshness embed-demo search-demo mcp mcp-dev chat demo eval-run eval-grade eval-report eval-recall eval-isolation
 
 COMPOSE = docker compose --env-file .env -f infra/docker-compose.yml
 
@@ -8,8 +8,8 @@ up:
 down:
 	$(COMPOSE) down
 
-smoke:
-	uv run python infra/smoke_test.py
+smoke-kafka:
+	uv run python infra/smoke_test_kafka.py
 
 smoke-db:
 	uv run python infra/smoke_test_postgres.py

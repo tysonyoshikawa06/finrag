@@ -1,8 +1,7 @@
-"""Smoke test: connect to Postgres, verify pgvector, insert/query/clean up.
+"""Connect to Postgres, verify pgvector, insert/query/clean up
 
 Run with: uv run python infra/smoke_test_postgres.py
-Requires: Postgres running on localhost:5433 (start with `make up`)
-          .env file with POSTGRES_PASSWORD set
+Requires: Postgres running on localhost:5433 (start with 'make up') and POSTGRES_PASSWORD set
 """
 
 import sys
@@ -12,7 +11,7 @@ import psycopg
 from dotenv import dotenv_values
 from pgvector.psycopg import register_vector
 
-# Load password from .env in the project root (not infra/)
+# From project root
 config = dotenv_values(".env")
 password = config.get("POSTGRES_PASSWORD")
 if not password:
@@ -20,7 +19,6 @@ if not password:
     sys.exit(1)
 
 DSN = f"host=localhost port=5433 dbname=streaming_rag user=rag password={password}"
-
 
 def main():
     print("Connecting to Postgres at localhost:5433...")
@@ -56,7 +54,7 @@ def main():
 
     # 3. Insert a test embedding with a dummy 384-dim vector (all zeros)
     dummy_vector = [0.0] * 384
-    dummy_vector[0] = 1.0  # set one component nonzero so similarity isn't degenerate
+    dummy_vector[0] = 1.0 # set one component nonzero for cosine similarity test
     cur.execute(
         """
         INSERT INTO embeddings (transaction_id, embedded_text, embedding)
@@ -68,12 +66,7 @@ def main():
     embedding_id = cur.fetchone()[0]
     print(f"Inserted embedding (id={embedding_id})")
 
-    # 4. Run a vector similarity query
-    # The <-> operator computes L2 (Euclidean) distance between two vectors.
-    # Lower distance = more similar. ORDER BY ... ASC returns the closest match.
-    # Other operators: <#> for negative inner product, <=> for cosine distance.
-    # We use cosine distance (<=>), which is what most sentence-transformer
-    # models are trained for and what we'll use in the real semantic search.
+    # 4. Run a vector similarity query (<=> is cosine similarity)
     query_vector = [0.0] * 384
     query_vector[0] = 1.0
     cur.execute(
@@ -113,7 +106,7 @@ def main():
         sys.exit(1)
 
     conn.close()
-    print("\nPASS — pgvector extension loaded, insert/query/cascade all working")
+    print("\nPASS - pgvector extension loaded, insert/query/cascade all working")
 
 
 if __name__ == "__main__":

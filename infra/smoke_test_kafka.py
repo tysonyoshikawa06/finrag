@@ -1,7 +1,7 @@
-"""Smoke test: produce 5 JSON messages to Kafka, consume them back, verify round-trip integrity.
+"""Produces 5 JSON messages to Kafka, consumes them back, and verifies round-trip
 
-Run with: uv run python infra/smoke_test.py
-Requires: Kafka running on localhost:29092 (start with `make up`)
+Run with: uv run python infra/smoke_test_kafka.py
+Requires: Kafka running on localhost:29092 (start with 'make up')
 """
 
 import json
@@ -15,9 +15,8 @@ from confluent_kafka.admin import AdminClient
 BOOTSTRAP_SERVERS = "localhost:29092"
 TOPIC = "transactions"
 
-
 def wait_for_kafka(timeout=30):
-    """Block until Kafka is reachable or timeout expires."""
+    """Block until Kafka is reachable or timeout expires"""
     admin = AdminClient({"bootstrap.servers": BOOTSTRAP_SERVERS})
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -29,9 +28,8 @@ def wait_for_kafka(timeout=30):
             time.sleep(1)
     return False
 
-
 def make_messages(n=5):
-    """Generate n sample transaction messages with unique IDs."""
+    """Generate n sample transaction messages with unique IDs"""
     return [
         {
             "transaction_id": str(uuid.uuid4()),
@@ -43,14 +41,12 @@ def make_messages(n=5):
         for i in range(n)
     ]
 
-
 def produce(messages):
-    """Send each message as JSON to the transactions topic.
+    """Send each message as JSON to the transactions topic
 
-    producer.produce() is asynchronous — it queues the message in an internal
-    buffer. producer.flush() blocks until all queued messages are delivered
-    (or the timeout expires). The return value is the number of messages still
-    in the queue — 0 means everything was delivered.
+    producer.produce() is async. producer.flush() blocks until all queued
+    messages are delivered (or the timeout expires). The return value is the
+    number of messages still in the queue (0 means everything was delivered)
     """
     producer = Producer({"bootstrap.servers": BOOTSTRAP_SERVERS})
 
@@ -68,14 +64,14 @@ def produce(messages):
     print(f"Produced {len(messages)} messages to '{TOPIC}'")
 
 
-def consume(expected_count, timeout=15):
-    """Read messages from the topic and return them as parsed dicts.
+def consume(expected_count=5, timeout=15):
+    """Read messages from the topic and return them as parsed dicts
 
     Key settings:
     - group.id: each consumer group tracks its own offsets. We use a random ID
-      so this test always reads from scratch (no leftover offset state).
+      so this test always reads from scratch (no leftover offset state)
     - auto.offset.reset: "earliest" means start from the first message in the
-      topic (not just new ones arriving after we subscribe).
+      topic, not just new ones arriving after we subscribe
     """
     consumer = Consumer(
         {
@@ -117,24 +113,23 @@ def main():
     received = consume(expected_count=5)
     print(f"Received {len(received)} messages\n")
 
-    # Verify: every sent transaction_id came back
+    # Cross reference
     sent_ids = {m["transaction_id"] for m in messages}
     recv_ids = {m["transaction_id"] for m in received}
 
     if sent_ids == recv_ids:
-        print("PASS — all 5 messages round-tripped successfully:")
+        print("PASS - all 5 messages round-tripped successfully:")
         for msg in received:
             print(f"  {msg['transaction_id'][:8]}... {msg['merchant']:>12}  ${msg['amount']:.2f}")
     else:
         missing = sent_ids - recv_ids
         extra = recv_ids - sent_ids
-        print("FAIL — message mismatch:")
+        print("FAIL - message mismatch:")
         if missing:
             print(f"  Not received: {missing}")
         if extra:
             print(f"  Unexpected:   {extra}")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()
