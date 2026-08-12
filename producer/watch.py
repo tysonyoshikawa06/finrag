@@ -1,11 +1,10 @@
-"""Console consumer that reads and pretty-prints events from the transactions topic.
+"""Console consumer that reads and pretty-prints events from the transactions topic
 
-Run via `make watch` in a second terminal while the producer is running.
+Run via 'make watch' in a while producer is running
 """
 
 import json
 import sys
-
 from confluent_kafka import Consumer, KafkaError
 
 from producer.config import KAFKA_BOOTSTRAP, KAFKA_TOPIC
@@ -15,11 +14,11 @@ def main():
     consumer = Consumer({
         "bootstrap.servers": KAFKA_BOOTSTRAP,
         "group.id": "watch-console",
-        "auto.offset.reset": "latest",
+        "auto.offset.reset": "latest", # starts reading from when watch-console consumer was created
     })
     consumer.subscribe([KAFKA_TOPIC])
 
-    print(f"Watching '{KAFKA_TOPIC}' (latest offsets, Ctrl-C to stop)...\n")
+    print(f"Watching '{KAFKA_TOPIC}' (latest offsets)...\n")
 
     try:
         while True:

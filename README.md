@@ -20,28 +20,28 @@ date, and git commit as `not recorded` — that is stated in the report itself,
 not omitted here. The agent that answers questions in this system runs on
 `claude-sonnet-5` (`agent/loop.py`); that's a fact about the code, not a
 provenance field this particular eval run captured. `eval/RECALL.md`'s
-measurements *are* pinned to a commit: `e48c4b1`.
+measurements _are_ pinned to a commit: `e48c4b1`.
 
 **Every row below is n=1 repeat per question** unless stated otherwise —
 single trials, not yet a stabilized pass rate (`make eval-run --repeats 3+`
 would give one). Read the counts as "this is what happened once," not
 "this is the system's success rate."
 
-| Metric | Result | n |
-|---|---|---|
-| Citation validity (hallucination rate) | 11/11 valid, 0 fabricated, 0 ungrounded-but-real → **0.0%** | 11 citations / 6 runs |
-| Aggregation accuracy — counts | 100% within 2% relative tolerance, MAE 3.0 | 7 extracted values |
-| Aggregation accuracy — rates | 0% within 2pp absolute tolerance, MAE 6.4pp | 1 extracted value |
-| Incident detection — gateway degradation | 1/1 (100%) | 1 |
-| Incident detection — fraud burst | 1/1 (100%) | 1 |
-| Incident detection — novel error pattern | 1/1 (100%, one assertion LLM-judged) | 1 |
-| Negative control (hallucination question) | 1/1 (100%) | 1 |
-| Tool routing accuracy | 6/6 (100%) | 6 |
-| Freshness (5-min window) | p50 0.60s · p95 1.10s · p99 1.16s · max 1.27s | 5,988 events |
+| Metric                                    | Result                                                      | n                     |
+| ----------------------------------------- | ----------------------------------------------------------- | --------------------- |
+| Citation validity (hallucination rate)    | 11/11 valid, 0 fabricated, 0 ungrounded-but-real → **0.0%** | 11 citations / 6 runs |
+| Aggregation accuracy — counts             | 100% within 2% relative tolerance, MAE 3.0                  | 7 extracted values    |
+| Aggregation accuracy — rates              | 0% within 2pp absolute tolerance, MAE 6.4pp                 | 1 extracted value     |
+| Incident detection — gateway degradation  | 1/1 (100%)                                                  | 1                     |
+| Incident detection — fraud burst          | 1/1 (100%)                                                  | 1                     |
+| Incident detection — novel error pattern  | 1/1 (100%, one assertion LLM-judged)                        | 1                     |
+| Negative control (hallucination question) | 1/1 (100%)                                                  | 1                     |
+| Tool routing accuracy                     | 6/6 (100%)                                                  | 6                     |
+| Freshness (5-min window)                  | p50 0.60s · p95 1.10s · p99 1.16s · max 1.27s               | 5,988 events          |
 
 The rate-accuracy and fraud-detection rows above aren't as clean as they look
 in isolation — `gateway_rate` and `fraud_pattern` are two of the six runs in
-this graded file, and both *failed* their strict pass/fail check (see
+this graded file, and both _failed_ their strict pass/fail check (see
 [Engineering findings](#engineering-findings) and `eval/REPORT.md`'s Failure
 analysis section). Both failures trace to the same mechanism: the agent's tool
 call and the grader's independent ground-truth SQL snapshot happen a few
@@ -135,19 +135,20 @@ make demo
 ```
 
 **First-run timing**, measured from a torn-down state (`docker compose down -v`
-+ `.venv` removed) on a machine that already had the Docker images and
-embedding model cached locally from earlier use: teardown through `uv sync`,
-`make up`, `make smoke-db`, and a working `make chat` exchange took about
-5 minutes; a full `make demo` run (all three incidents, six grounded answers)
-takes about 5 minutes once the stack is warm — most of that is deliberate
-pacing (a 30s calm-baseline wait plus two 75s buffers so each injected
-incident has time to dominate its measurement window before being asked
-about), not slowness. **Not measured here**: a genuinely first-time image
-pull and model download, since this machine's cache made that a no-op. Budget
-extra time for those — the three Docker images total about 1.6GB
-(`pgvector/pgvector:pg17` ~627MB, `apache/kafka:4.3.0` ~675MB,
-`sosedoff/pgweb:latest` ~265MB) and the embedding model is ~88MB — both are
-one-time costs on a truly fresh machine, not per-run.
+
+- `.venv` removed) on a machine that already had the Docker images and
+  embedding model cached locally from earlier use: teardown through `uv sync`,
+  `make up`, `make smoke-db`, and a working `make chat` exchange took about
+  5 minutes; a full `make demo` run (all three incidents, six grounded answers)
+  takes about 5 minutes once the stack is warm — most of that is deliberate
+  pacing (a 30s calm-baseline wait plus two 75s buffers so each injected
+  incident has time to dominate its measurement window before being asked
+  about), not slowness. **Not measured here**: a genuinely first-time image
+  pull and model download, since this machine's cache made that a no-op. Budget
+  extra time for those — the three Docker images total about 1.6GB
+  (`pgvector/pgvector:pg17` ~627MB, `apache/kafka:4.3.0` ~675MB,
+  `sosedoff/pgweb:latest` ~265MB) and the embedding model is ~88MB — both are
+  one-time costs on a truly fresh machine, not per-run.
 
 **Troubleshooting:** `make demo` reconfigures its own output to UTF-8
 internally, so it runs cleanly on a stock Windows console without any setup.
@@ -168,7 +169,7 @@ database or agent later reports.
 The consumer batches events (100 events or 1 second, whichever comes first)
 and writes each batch inside one Postgres transaction: all events into
 `transactions` first, then the failure subset embedded and inserted into
-`embeddings`. Kafka offsets commit only *after* that DB transaction succeeds.
+`embeddings`. Kafka offsets commit only _after_ that DB transaction succeeds.
 Kafka's own at-least-once delivery means a crash mid-batch causes redelivery,
 but both inserts use `ON CONFLICT (transaction_id) DO NOTHING`, so a replayed
 batch is silently absorbed — at-least-once delivery plus idempotent writes
@@ -327,17 +328,17 @@ above).
 
 ## Repo tour
 
-| Path | What's there |
-|---|---|
-| `producer/` | Baseline event generator + scenario engine (incident injection, ground-truth log) |
-| `consumer/` | Kafka → Postgres batch writer, selective embedding, freshness/search queries |
-| `mcp_server/` | FastMCP server exposing the four retrieval tools, plus shared input validation |
-| `agent/` | Anthropic tool-use loop, system prompt, MCP bridge, CLI chat |
-| `demo/` | Scripted end-to-end demo orchestrator + the golden question set |
-| `eval/` | Golden-question runner, offline grader, recall measurement, generated reports |
-| `infra/` | docker-compose (Kafka KRaft, Postgres+pgvector), schema, smoke tests |
-| `tests/` | Independent test suite, written from specs rather than from the implementation |
-| `.claude/` | Feature specs (`specs/`), agent/skill definitions driving this project's build process |
+| Path          | What's there                                                                           |
+| ------------- | -------------------------------------------------------------------------------------- |
+| `producer/`   | Baseline event generator + scenario engine (incident injection, ground-truth log)      |
+| `consumer/`   | Kafka → Postgres batch writer, selective embedding, freshness/search queries           |
+| `mcp_server/` | FastMCP server exposing the four retrieval tools, plus shared input validation         |
+| `agent/`      | Anthropic tool-use loop, system prompt, MCP bridge, CLI chat                           |
+| `demo/`       | Scripted end-to-end demo orchestrator + the golden question set                        |
+| `eval/`       | Golden-question runner, offline grader, recall measurement, generated reports          |
+| `infra/`      | docker-compose (Kafka KRaft, Postgres+pgvector), schema, smoke tests                   |
+| `tests/`      | Independent test suite, written from specs rather than from the implementation         |
+| `.claude/`    | Feature specs (`specs/`), agent/skill definitions driving this project's build process |
 
 Regenerate the numbers above:
 

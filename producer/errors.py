@@ -1,22 +1,10 @@
-"""Error families for the failure-text layer.
+"""Error families for the failure-text layer
 
 Each family represents one logical failure reason with multiple textual
-variants — inconsistent casing, codes vs prose, abbreviations. This
-inconsistency is what makes semantic search valuable: the same meaning
-surfaces in different words.
+variants"""
 
-The set of families is closed and enumerable. Step 6 defines a "novel error"
-as any string outside ALL_FAMILIES.
-"""
-
+import itertools
 import random
-
-# ---------------------------------------------------------------------------
-# Error families: each is a list of template strings.
-#
-# Templates may contain {gateway} — filled from the event's gateway field.
-# Families without {gateway} ignore it.
-# ---------------------------------------------------------------------------
 
 INSUFFICIENT_FUNDS = [
     "insufficient_funds",
@@ -69,7 +57,7 @@ FRAUD_SUSPECTED = [
     "transaction flagged: high risk score",
 ]
 
-# Master list — Step 6 imports this to define "novel" as outside all families.
+# List of non-novel error families
 ALL_FAMILIES = [
     INSUFFICIENT_FUNDS,
     DO_NOT_HONOR,
@@ -80,11 +68,8 @@ ALL_FAMILIES = [
     FRAUD_SUSPECTED,
 ]
 
-# Card-only families (expired card, invalid CVV don't apply to ach/wallet).
-_CARD_ONLY = {id(EXPIRED_CARD), id(INVALID_CVV)}
-
-# (family, weight) — weights reflect real-world decline frequency.
-# Everyday declines dominate; timeouts and fraud are rarer.
+# (family, weight) - weights reflect real-world decline frequency.
+# Contains error families applicable to all methods
 _FAMILY_WEIGHTS_ALL = [
     (INSUFFICIENT_FUNDS, 30),
     (DO_NOT_HONOR, 20),
@@ -93,19 +78,26 @@ _FAMILY_WEIGHTS_ALL = [
     (FRAUD_SUSPECTED, 7),
 ]
 
+# Card-only error families
 _FAMILY_WEIGHTS_CARD = _FAMILY_WEIGHTS_ALL + [
     (EXPIRED_CARD, 15),
     (INVALID_CVV, 10),
 ]
 
+_CARD_FAMILIES, _CARD_WEIGHTS = zip(*_FAMILY_WEIGHTS_CARD)
+_CARD_CUM_WEIGHTS = list(itertools.accumulate(_CARD_WEIGHTS))
+
+_ALL_FAMILIES, _ALL_WEIGHTS = zip(*_FAMILY_WEIGHTS_ALL)
+_ALL_CUM_WEIGHTS = list(itertools.accumulate(_ALL_WEIGHTS))
+
 
 def generate_error_text(method: str, gateway: str) -> str:
-    """Pick a random error family and variant, filling in gateway if templated."""
+    """Pick a random error family and variant, filling in gateway if templated"""
     if method == "card":
-        families, weights = zip(*_FAMILY_WEIGHTS_CARD)
+        families, cum_weights = _CARD_FAMILIES, _CARD_CUM_WEIGHTS
     else:
-        families, weights = zip(*_FAMILY_WEIGHTS_ALL)
+        families, cum_weights = _ALL_FAMILIES, _ALL_CUM_WEIGHTS
 
-    family = random.choices(families, weights=weights, k=1)[0]
+    family = random.choices(families, cum_weights=cum_weights, k=1)[0]
     template = random.choice(family)
     return template.format(gateway=gateway)

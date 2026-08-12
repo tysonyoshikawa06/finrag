@@ -1,7 +1,4 @@
-"""CLI for injecting incidents into the running producer.
-
-Writes to the control file that the producer polls. The producer detects
-new entries and activates biasing + ground-truth logging.
+"""CLI for injecting incidents into the running producer; writes to control file
 
 Usage:
     python -m producer.inject gateway_degradation --gateway stripe-proxy --duration 2m
@@ -18,7 +15,6 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
 import random
 
 from producer.config import CARD_BINS, GATEWAYS, MERCHANTS
@@ -26,7 +22,7 @@ from producer.scenarios import CONTROL_FILE
 
 
 def _parse_duration(s: str) -> int:
-    """Parse '2m', '30s', '120' into seconds."""
+    """Parse '2m', '30s', '120' into seconds"""
     s = s.strip().lower()
     if s.endswith("m"):
         return int(s[:-1]) * 60

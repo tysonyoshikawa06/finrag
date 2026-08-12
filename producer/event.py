@@ -1,10 +1,6 @@
-"""Single-event generation logic for the baseline producer.
+"""Single-event generation logic for the baseline producer"""
 
-This module owns the shape of one transaction event. Steps 5 and 6 will
-layer on error text and distribution biases by wrapping or post-processing
-generate_event() — the function signature stays stable.
-"""
-
+import itertools
 import math
 import random
 import uuid
@@ -21,15 +17,15 @@ from producer.config import (
 from producer.errors import generate_error_text
 
 _METHODS = list(METHOD_WEIGHTS.keys())
-_METHOD_CUM_WEIGHTS = list(METHOD_WEIGHTS.values())
-
+_METHOD_WEIGHTS = list(METHOD_WEIGHTS.values())
+_METHOD_CUM_WEIGHTS = list(itertools.accumulate(_METHOD_WEIGHTS)) # Pre-compute cumulative weights
 
 def generate_event() -> dict:
-    """Generate one realistic baseline transaction event.
+    """Generate one realistic baseline transaction event
 
-    Returns a dict matching the transactions table schema (minus ingested_at).
+    Returns a dict matching the transactions table schema (minus ingested_at)
     """
-    method = random.choices(_METHODS, weights=_METHOD_CUM_WEIGHTS, k=1)[0]
+    method = random.choices(_METHODS, cum_weights=_METHOD_CUM_WEIGHTS, k=1)[0]
 
     lo, hi = AMOUNT_RANGES[method]
     amount = _log_uniform(lo, hi)
@@ -52,12 +48,8 @@ def generate_event() -> dict:
         "card_bin": card_bin,
     }
 
-
 def _log_uniform(lo: float, hi: float) -> float:
-    """Sample from a log-uniform distribution between lo and hi.
-
-    Log-uniform produces a right-skewed distribution: most values cluster
-    near the low end with a long tail toward the high end. This matches
-    real payment amounts — many $10-$30 charges, few $400+ charges.
+    """Sample from a log-uniform distribution between lo and hi
+    as to mimic real transaction data
     """
     return math.exp(random.uniform(math.log(lo), math.log(hi)))

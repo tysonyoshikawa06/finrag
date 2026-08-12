@@ -1,7 +1,6 @@
-"""Baseline transaction event producer.
+"""Baseline transaction event producer: generates realistic payment events and sends them to Kafka
 
-Generates realistic payment events and sends them to Kafka.
-Run directly or via `make produce`.
+Run directly or via 'make produce'
 """
 
 import argparse
@@ -10,7 +9,7 @@ import signal
 import sys
 import time
 
-from confluent_kafka import KafkaError, Producer
+from confluent_kafka import Producer
 
 from producer.config import KAFKA_BOOTSTRAP, KAFKA_TOPIC
 from producer.event import generate_event
@@ -18,19 +17,16 @@ from producer.scenarios import ScenarioEngine
 
 _shutdown = False
 
-
-def _on_sigint(sig, frame):
+def _on_sigint(sig, frame): # sig, frame required for override
     global _shutdown
     _shutdown = True
 
-
-def _delivery_callback(err, msg):
+def _delivery_callback(err, msg): # err, msg required for override
     if err is not None:
         print(f"  delivery failed: {err}", file=sys.stderr)
 
-
 def _format_summary(event: dict) -> str:
-    ts = event["event_timestamp"][11:19]  # HH:MM:SS from ISO string
+    ts = event["event_timestamp"][11:19] # HH:MM:SS from ISO string
     method = event["method"]
     amount = f"${event['amount']:,.2f}"
     status = event["status"]
@@ -42,10 +38,16 @@ def _format_summary(event: dict) -> str:
 
 
 def run(rate: int, count: int | None, duration: float | None, log_every: int):
+    """Runs the producer
+
+    Count and duration are optional arguments used to limit
+    event count and production time
+    """
     signal.signal(signal.SIGINT, _on_sigint)
 
     producer = Producer({
         "bootstrap.servers": KAFKA_BOOTSTRAP,
+        # 5ms batch or 100 max batch size
         "linger.ms": 5,
         "batch.num.messages": 100,
     })
@@ -56,7 +58,7 @@ def run(rate: int, count: int | None, duration: float | None, log_every: int):
     sent = 0
     start = time.monotonic()
 
-    print(f"Producing to '{KAFKA_TOPIC}' at ~{rate} events/sec  (Ctrl-C to stop)")
+    print(f"Producing to {KAFKA_TOPIC} at ~{rate} events/sec")
     print(f"{'time':>8}  {'method':<6} {'amount':>10}  {'status':<7}  gateway")
     print("-" * 58)
 
@@ -71,11 +73,12 @@ def run(rate: int, count: int | None, duration: float | None, log_every: int):
             event = generate_event()
             event = engine.apply(event)
             payload = json.dumps(event).encode("utf-8")
+            event_id = event["transaction_id"].encode("utf-8")
 
             producer.produce(
                 KAFKA_TOPIC,
                 value=payload,
-                key=event["transaction_id"].encode("utf-8"),
+                key=event_id,
                 callback=_delivery_callback,
             )
             producer.poll(0)
@@ -97,8 +100,7 @@ def run(rate: int, count: int | None, duration: float | None, log_every: int):
                 if sent % log_every == 0:
                     print(_format_summary(extra))
 
-            # Simple rate limiting: sleep the remainder of the interval.
-            # Good enough for 20 events/sec; not meant for high-throughput.
+            # sleep the remainder of the interval.
             elapsed = time.monotonic() - start
             expected = sent * interval
             if expected > elapsed:

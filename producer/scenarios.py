@@ -1,23 +1,13 @@
-"""Scenario engine: control-file polling, incident biasing, ground-truth logging.
-
-The producer polls a control file each tick. A separate CLI (inject.py) writes
-incidents to the file. The producer detects starts/ends/clears and applies
-biasing to generated events. Ground-truth records are written by the producer
-(the source of truth for what was actually emitted).
-
-Incident types are registered in INCIDENT_APPLIERS. Each is a function that
-takes (event, params) and returns the (possibly modified) event.
-"""
+"""Scenario engine: control-file polling, incident biasing, and ground-truth logging"""
 
 import json
-import os
 import random
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from producer.config import CARD_BINS, GATEWAYS, MERCHANTS
+from producer.config import GATEWAYS, MERCHANTS
 from producer.errors import GATEWAY_TIMEOUT, NETWORK_ERROR
 
 CONTROL_FILE = Path(__file__).parent / "control.json"
@@ -25,26 +15,18 @@ CONTROL_FILE = Path(__file__).parent / "control.json"
 GROUND_TRUTH_DIR = Path(__file__).resolve().parent.parent / "eval" / "ground_truth"
 GROUND_TRUTH_FILE = GROUND_TRUTH_DIR / "incidents.jsonl"
 
-_POLL_INTERVAL = 0.5  # seconds between control-file reads
-
+_POLL_INTERVAL = 0.5 # seconds between control file reads
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
-
 
 def _log_ground_truth(record: dict):
     GROUND_TRUTH_DIR.mkdir(parents=True, exist_ok=True)
     with open(GROUND_TRUTH_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
 
-
-# ---------------------------------------------------------------------------
-# Incident appliers: each takes (event, params) → event.
-# Register new types in INCIDENT_APPLIERS at the bottom.
-# ---------------------------------------------------------------------------
-
 def _apply_gateway_degradation(event: dict, params: dict) -> dict:
-    """Spike failures for the target gateway with timeout/network errors."""
+    """Spike failures for the target gateway with timeout or network errors"""
     if event["gateway"] != params["gateway"]:
         return event
 
@@ -57,13 +39,11 @@ def _apply_gateway_degradation(event: dict, params: dict) -> dict:
 
     return event
 
-
 def _generate_fraud_event(params: dict) -> dict | None:
-    """Maybe generate an extra fraud-shaped event. Returns None if not this tick.
+    """Generate an extra fraud-shaped event. Returns None if not
 
-    Fraud events are small card charges ($1-$5) all sharing one BIN, spread
-    across many merchants, mostly succeeding. No single event is suspicious —
-    only the aggregate pattern (shared BIN, tiny amounts, high velocity).
+    Fraud events are small card charges all sharing one BIN, spread
+    across many merchants, mostly succeeding
     """
     intensity = params.get("intensity", 0.25)
     if random.random() > intensity:
@@ -89,7 +69,7 @@ NOVEL_ERROR_SIGNATURE = (
 
 
 def _apply_novel_error(event: dict, params: dict) -> dict:
-    """Inject a never-before-seen error string on failures from the target merchant."""
+    """Inject a never-before seen error string on failures from the target merchant"""
     if event["merchant"] != params["merchant"]:
         return event
 
@@ -100,32 +80,26 @@ def _apply_novel_error(event: dict, params: dict) -> dict:
 
     return event
 
-
+# Mutate incoming events
 INCIDENT_APPLIERS = {
     "gateway_degradation": _apply_gateway_degradation,
     "novel_error_pattern": _apply_novel_error,
 }
 
-# Generators return extra events (or None to skip). Unlike appliers, these
-# produce NEW events rather than modifying existing ones.
+# Generate new events
 INCIDENT_GENERATORS = {
     "fraud_burst": _generate_fraud_event,
 }
 
-
-# ---------------------------------------------------------------------------
-# Engine
-# ---------------------------------------------------------------------------
-
 class ScenarioEngine:
-    """Polls the control file, tracks active incidents, applies biasing."""
+    """Polls the control file, tracks active incidents, applies biasing"""
 
     def __init__(self):
         self._active: dict[str, dict] = {}
         self._last_poll: float = 0.0
 
     def poll(self):
-        """Read control file if enough time has passed. Detect starts/ends/clears."""
+        """Read control file if enough time has passed. Detect starts/ends/clears"""
         now_mono = time.monotonic()
         if now_mono - self._last_poll < _POLL_INTERVAL:
             return
@@ -145,13 +119,13 @@ class ScenarioEngine:
             expires_at = datetime.fromisoformat(inc["expires_at"])
 
             if expires_at <= now:
-                # Expired — if we were tracking it, log end
+                # Log end if expired
                 if inc_id in self._active:
                     self._end_incident(inc_id)
                 continue
 
             if inc_id not in self._active:
-                # New incident — activate
+                # Activate new incident
                 self._active[inc_id] = inc
                 _log_ground_truth({
                     "incident_id": inc_id,
@@ -162,12 +136,13 @@ class ScenarioEngine:
                 })
                 print(f"  [scenario] ACTIVATED: {inc['type']} {inc['params']}")
 
-        # Detect cleared incidents (in memory but gone from file)
+        # Detect cleared incidents in memory but gone from file (bookkeeping)
         cleared = [iid for iid in self._active if iid not in seen_ids]
         for inc_id in cleared:
             self._end_incident(inc_id)
 
     def _end_incident(self, inc_id: str):
+        """End an incident via its id"""
         inc = self._active.pop(inc_id)
         _log_ground_truth({
             "incident_id": inc_id,
@@ -179,7 +154,7 @@ class ScenarioEngine:
         print(f"  [scenario] EXPIRED: {inc['type']} {inc['params']}")
 
     def apply(self, event: dict) -> dict:
-        """Apply all active incident biases to an event."""
+        """Apply all active incident biases to an event"""
         for inc in self._active.values():
             applier = INCIDENT_APPLIERS.get(inc["type"])
             if applier:
@@ -187,7 +162,7 @@ class ScenarioEngine:
         return event
 
     def generate_extra_events(self) -> list[dict]:
-        """Generate extra events from active incidents (e.g. fraud burst)."""
+        """Generate extra events from active incidents"""
         extras = []
         for inc in self._active.values():
             generator = INCIDENT_GENERATORS.get(inc["type"])
