@@ -1,8 +1,8 @@
-"""Consumer configuration — Kafka and Postgres connection defaults.
+"""Kafka and Postgres connection defaults
 
 Defaults target host access (localhost + mapped ports) for dev-velocity.
 In a container deployment, override via environment variables to use the
-internal Docker DNS names and ports (kafka:9092, postgres:5432).
+internal Docker DNS names and ports (kafka:9092, postgres:5432)
 """
 
 import os

@@ -1,25 +1,12 @@
-"""Kafka consumer: reads transaction events, batches them, and writes to Postgres.
+"""Reads transaction events from Kafka topic, batches them, and writes to Postgres
 
-Offset ordering (the key guarantee):
-  1. Accumulate events into a batch (up to BATCH_SIZE or BATCH_TIMEOUT_SEC).
-  2. Write the batch to Postgres in a single DB transaction:
-       a. Insert all transactions (idempotent via ON CONFLICT DO NOTHING).
-       b. Embed failure-events in one batched model call.
-       c. Insert embeddings (idempotent via ON CONFLICT (transaction_id) DO NOTHING).
-  3. Only AFTER the DB commit succeeds, commit Kafka offsets.
-
-If the process crashes between steps 2 and 3, Kafka redelivers those events.
-Both ON CONFLICT clauses make reprocessing harmless — duplicates are silently
-ignored, so every event lands in each table exactly once.
-
-Run directly or via `make consume`.
+Run directly or via 'make consume'
 """
 
 import json
 import signal
 import sys
 import time
-
 from confluent_kafka import Consumer, KafkaError
 
 from consumer.config import (
@@ -35,7 +22,7 @@ from consumer.embedder import LocalEmbedder
 _shutdown = False
 
 
-def _on_sigint(sig, frame):
+def _on_sigint(sig, frame): # sig, frame required for overload
     global _shutdown
     _shutdown = True
 
@@ -53,7 +40,7 @@ def _format_event(event: dict) -> str:
 
 
 def _flush_batch(conn, consumer, batch, total_written, embedder=None):
-    """Write batch to DB, then commit Kafka offsets. Returns new total."""
+    """Write batch to DB, then commit Kafka offsets. Returns new total"""
     if not batch:
         return total_written
 
@@ -63,6 +50,7 @@ def _flush_batch(conn, consumer, batch, total_written, embedder=None):
         print(f"  DB write failed ({len(batch)} events): {e}", file=sys.stderr)
         return total_written
 
+    # only commit kafka offset after db write was successful
     consumer.commit(asynchronous=False)
 
     total_written += len(batch)
@@ -73,14 +61,14 @@ def _flush_batch(conn, consumer, batch, total_written, embedder=None):
 def run():
     signal.signal(signal.SIGINT, _on_sigint)
 
-    print("Loading embedding model (first run downloads ~80 MB, then cached)...")
+    print("Loading embedding model...")
     embedder = LocalEmbedder()
 
     consumer = Consumer({
         "bootstrap.servers": KAFKA_BOOTSTRAP,
         "group.id": CONSUMER_GROUP,
         "auto.offset.reset": "earliest",
-        "enable.auto.commit": False,
+        "enable.auto.commit": False, # ensures offset is only committed manually
     })
     consumer.subscribe([KAFKA_TOPIC])
 
@@ -98,7 +86,7 @@ def run():
 
     try:
         while not _shutdown:
-            msg = consumer.poll(0.1)
+            msg = consumer.poll(0.1) # blocks for 100ms
 
             if msg is not None and not msg.error():
                 try:
@@ -113,7 +101,7 @@ def run():
                         print(_format_event(event))
 
             elif msg is not None and msg.error():
-                if msg.error().code() != KafkaError._PARTITION_EOF:
+                if msg.error().code() != KafkaError._PARTITION_EOF: # _PARTITION_EOF means no events
                     print(f"  consumer error: {msg.error()}", file=sys.stderr)
 
             batch_age = time.monotonic() - batch_start

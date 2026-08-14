@@ -1,16 +1,11 @@
-"""Database writer: batched inserts into transactions and embeddings tables.
+"""Writes batched inserts into transactions and embeddings tables
 
 Write ordering within each batch:
-  1. Insert all transactions (ON CONFLICT DO NOTHING for idempotency).
-  2. Embed the failure subset in one batched model call.
-  3. Insert embeddings — FK is satisfied because transactions landed first.
+  1. Insert all transactions (idempotent)
+  2. Embed the failure subset in one batched model call
+  3. Insert embeddings (foreign key is satisfied)
 
-Both inserts live inside a single conn.transaction() block, so a failure
-rolls back both: no orphaned embeddings, no missing embeddings.
-
-ON CONFLICT (transaction_id) DO NOTHING on both tables means reprocessed
-batches (Kafka redelivery after a crash) are silently ignored — effectively
-once delivery for both tables.
+Failed writes rolls back both (no orphaned embeddings)
 """
 
 from datetime import datetime, timezone
@@ -41,14 +36,7 @@ _INSERT_EMB_SQL = """
 
 
 def build_embedding_text(event: dict) -> str:
-    """Construct the enriched string to embed for a failure event.
-
-    Opaque codes like "NSF" or "ERR_05" carry little meaning on their own.
-    Wrapping them in structured context — method, gateway, raw error — puts
-    them in a payment-failure frame the model can place meaningfully in vector
-    space. The returned string is also stored in embedded_text so it is always
-    inspectable without re-deriving it.
-    """
+    """Enrich an error message for better embedding"""
     method = event.get("method", "unknown")
     gateway = event.get("gateway", "unknown")
     error_text = event.get("error_text", "")
@@ -56,16 +44,16 @@ def build_embedding_text(event: dict) -> str:
 
 
 def connect() -> psycopg.Connection:
+    """Initialize psycopg connection with vector type"""
     conn = psycopg.connect(POSTGRES_DSN, row_factory=dict_row)
     register_vector(conn)
     return conn
 
 
 def write_batch(conn: psycopg.Connection, events: list[dict], embedder=None) -> int:
-    """Insert a batch of events. Embeds failure events if embedder is provided.
+    """Insert a batch of events. Embeds failure events if embedder is provided
 
-    Returns the number of events in the batch (not necessarily rows inserted,
-    since duplicates are silently skipped via ON CONFLICT DO NOTHING).
+    Returns the number of events in the batch (not necessarily rows inserted)
     """
     now = datetime.now(timezone.utc).isoformat()
     for event in events:
@@ -76,9 +64,10 @@ def write_batch(conn: psycopg.Connection, events: list[dict], embedder=None) -> 
     with conn.transaction():
         cur = conn.cursor()
 
-        # Transactions first — the FK must exist before its embedding row.
+        # Transactions first (foreign key must exist before its embedding row)
         cur.executemany(_INSERT_TX_SQL, events)
 
+        # Embed failures and insert
         if embedder is not None and failure_events:
             texts = [build_embedding_text(e) for e in failure_events]
             vectors = embedder.embed(texts)

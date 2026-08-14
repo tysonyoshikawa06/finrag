@@ -1,8 +1,7 @@
-"""Embedding interface and local sentence-transformer implementation.
+"""Embedding interface and local sentence-tansformer
 
-The Embedder ABC is the only coupling point between the consumer write path
-and any specific model. To swap in Voyage AI or OpenAI embeddings later,
-add a new subclass and pass it to write_batch — nothing else changes.
+To substitute other embeddings later, add a new subclass and pass it
+to write_batch
 """
 
 from abc import ABC, abstractmethod
@@ -12,27 +11,24 @@ from sentence_transformers import SentenceTransformer
 
 
 class Embedder(ABC):
-    """Converts a list of strings into a list of float vectors."""
+    """Converts a list of strings into a list of float vectors"""
 
     @abstractmethod
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Return one normalized embedding vector per input text.
 
-        Vectors must be L2-normalized so that dot product equals cosine
-        similarity. This is what pgvector's <=> operator (cosine distance)
-        and the HNSW index (Step 10) both expect.
+        Vectors MUST be L2-normalized so that dot product equals cosine
+        similarity (pgvector's <=> operator (cosine distance)
+        and the HNSW index both require this)
         """
 
 
 class LocalEmbedder(Embedder):
-    """Wraps all-MiniLM-L6-v2 via sentence-transformers.
+    """Wraps all-MiniLM-L6-v2
 
     Produces 384-dimensional, cosine-normalized vectors. The model file is
     ~80 MB and downloads to the HuggingFace cache (~/.cache/huggingface/) on
-    first use; subsequent runs load from disk and are fast.
-
-    The model is loaded once on construction and reused across all embed()
-    calls — never reloaded per batch.
+    first use; subsequent runs load from disk
     """
 
     _EXPECTED_DIM = 384
