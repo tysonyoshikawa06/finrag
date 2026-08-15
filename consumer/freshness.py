@@ -1,11 +1,6 @@
-"""Freshness query: ingest-lag percentiles over a recent window.
-
-Reusable module — Step 13's system_freshness MCP tool will call
-query_freshness() directly.
-"""
+"""Ingest-lag percentile methods over a window"""
 
 import psycopg
-
 from consumer.config import POSTGRES_DSN
 
 _FRESHNESS_SQL = """
@@ -24,15 +19,7 @@ _FRESHNESS_SQL = """
 
 
 def query_freshness(window: str = "5 minutes") -> dict | None:
-    """Return freshness stats for events within the given window.
-
-    Uses event_timestamp (not ingested_at) for the window filter so that
-    old backlog events with stale event_timestamps don't pollute the
-    metric. We want to measure the freshness of the *live* stream, not
-    how long it took to drain a historical backlog.
-
-    Returns None if no events fall within the window.
-    """
+    """Return freshness stats for events within the given window (default "5 minutes")"""
     conn = psycopg.connect(POSTGRES_DSN)
     try:
         cur = conn.cursor()
