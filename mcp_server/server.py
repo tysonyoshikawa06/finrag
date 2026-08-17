@@ -1,13 +1,6 @@
-"""FastMCP server exposing the streaming RAG tools over stdio.
+"""FastMCP server exposing tools over stdio
 
-The server layer is deliberately thin: each tool opens a connection via
-consumer.db.connect() (same DSN/config as the consumer), delegates to the
-pure query function, and closes the connection. All query logic and input
-validation lives in the delegate modules (stats.py), which keeps the tools
-testable without MCP transport — and lets FastMCP's in-memory client exercise
-the full path in integration tests.
-
-Run with: make mcp (stdio server) or make mcp-dev (MCP inspector).
+Run with: make mcp (stdio server) or make mcp-dev (MCP inspector)
 """
 
 from fastmcp import FastMCP
@@ -18,9 +11,7 @@ from mcp_server import freshness, semantic, stats, transactions
 
 mcp = FastMCP("streaming-rag")
 
-# Loading the model is the expensive part (~80MB download + init) — load it
-# once at import time and reuse it across every semantic_search call, never
-# reconstruct it per request.
+# load model once at import time
 _embedder = LocalEmbedder()
 
 
@@ -38,7 +29,7 @@ def query_stats(
     by gateway?". group_by and filter keys accept: method, status, gateway,
     merchant. metric is "count" or "failure_rate" (fraction of failures per
     group, 0-1). Returns total_events for the filtered window plus up to
-    `limit` rows ordered by the metric, descending.
+    'limit' rows ordered by the metric, descending.
     """
     conn = connect()
     try:
@@ -67,9 +58,9 @@ def semantic_search(
     things like "is anything unusual in the errors?", "find failures similar
     to X", "are there new/novel error patterns?", or "what are the timeout
     errors saying?" — where the right match isn't a fixed keyword or category.
-    It embeds `query` and returns the k most semantically similar failure
-    events from the last `window_minutes`, optionally narrowed to a single
-    `gateway`.
+    It embeds 'query' and returns the k most semantically similar failure
+    events from the last 'window_minutes', optionally narrowed to a single
+    'gateway'.
 
     Use query_stats instead when the question is about counting, rates, or
     top-N breakdowns (e.g. "how many failures in the last hour by gateway?" or
@@ -117,7 +108,7 @@ def get_transactions(
     Pass transaction_ids for ID mode, or window_minutes/status/gateway/method
     for filter mode — not both in the same call. In filter mode,
     window_minutes defaults to 30 and rows come back newest first, capped at
-    `limit`. In ID mode, any requested ID with no matching row is listed in
+    'limit'. In ID mode, any requested ID with no matching row is listed in
     missing_ids rather than causing an error.
 
     This is the drill-down step after query_stats (which only returns
@@ -148,7 +139,7 @@ def system_freshness(window_minutes: int = 5) -> dict:
     Use this to answer or caveat "is this current?" / "how fresh is this
     data?" style questions. It measures ingest lag — the delay between an
     event happening (event_timestamp) and becoming queryable in Postgres
-    (ingested_at) — over the last `window_minutes` (default 5). It does not
+    (ingested_at) — over the last 'window_minutes' (default 5). It does not
     measure query latency or system uptime.
 
     Returns event_count plus p50/p95/p99/max lag in seconds and a short

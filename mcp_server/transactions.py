@@ -1,19 +1,9 @@
-"""Row-level lookup over transactions — the drill-down step after an
-aggregate (query_stats) or a meaning search (semantic_search).
+"""Row-level lookup over transactions for LLM citations
 
-get_transactions is the pure core of the MCP get_transactions tool: it takes
-an existing psycopg connection (server.py owns opening/closing, same as
-stats.py/semantic.py) and runs one of two mutually exclusive read paths:
-
+  Two read modes:
   - ID mode: fetch exact rows for a caller-supplied list of transaction_ids
-    (e.g. citing specific hits from a prior semantic_search/query_stats call).
   - Filter mode: fetch a bounded, newest-first sample of rows matching
-    optional status/gateway/method filters within a recent window.
-
-Injection safety follows the same two rules as stats.py: every caller-supplied
-value rides in a SQL parameter, never interpolated, and the only thing ever
-formatted into SQL here is the fixed column list below (never derived from
-caller input).
+    optional status/gateway/method filters within a recent window
 """
 
 import psycopg
@@ -21,10 +11,8 @@ from psycopg.rows import dict_row
 
 from mcp_server import validation
 
-_MAX_IDS = 100  # reject (never clamp) over this — dropping requested IDs
-# would silently break grounding for whatever cited them.
-_MAX_WINDOW_MINUTES = 1440  # 24h — matches data retention; lower this if the
-# environment resets more often.
+_MAX_IDS = 100  # reject (never clamp) over this; dropping requested IDs invalidates citations
+_MAX_WINDOW_MINUTES = 1440  # 24 hours
 _MAX_LIMIT = 100
 
 _ROW_COLUMNS = """
@@ -74,19 +62,17 @@ def get_transactions(
     method: str | None = None,
     limit: int = 10,
 ) -> dict:
-    """Fetch full transaction rows, either by ID or by a bounded filter.
+    """Fetch full transaction rows, either by ID or by a bounded filter
 
-    Mode is chosen by whether transaction_ids is a non-empty list:
-      - ID mode: returns exactly those rows (order not guaranteed to match
-        input order). Requested IDs with no matching row are reported in
-        missing_ids rather than raising.
-      - Filter mode (transaction_ids is None or []): returns up to `limit`
-        rows from the last `window_minutes` (default 30) matching any given
-        status/gateway/method, newest first.
+    Mode is chosen by whether transaction_ids is a non-empty list
+      - transaction_ids is not None: returns exactly those rows
+        (order not guaranteed to match input) Requested IDs with no matching
+        row are reported in missing_ids rather than raising
+      - transaction_ids is None: returns up to limit from the 
+        last window_minutes (default 30) matching any given
+        status/gateway/method (newest first)
 
-    The two modes are mutually exclusive in a single call — see raises below.
-    Both modes' return dicts carry a `notes` list of human-readable notes
-    about any clamping applied (empty when nothing was clamped).
+    The two modes are mutually exclusive; provide EITHER transaction_ids or filter params
     """
     have_ids = bool(transaction_ids)
     notes: list[str] = []
@@ -104,7 +90,7 @@ def get_transactions(
             "IDs to look up specific rows, or filters to search."
         )
 
-    # limit is validated/clamped the same way in both modes.
+    # limit is validated/clamped the same way in both modes
     limit, note = validation.clamp_positive_int(
         "limit", limit, default=10, max_value=_MAX_LIMIT
     )
@@ -113,13 +99,12 @@ def get_transactions(
 
     if have_ids:
         if len(transaction_ids) > _MAX_IDS:
-            # Reject, never clamp: silently dropping requested IDs would
-            # break grounding for whatever cited them.
+            # reject if too many requested IDs
             raise ValueError(
                 f"transaction_ids exceeds the cap of {_MAX_IDS} items "
                 f"(got {len(transaction_ids)}); rejected rather than "
                 f"truncated because dropping requested IDs would break "
-                f"grounding — pass at most {_MAX_IDS} IDs per call."
+                f"grounding; pass at most {_MAX_IDS} IDs per call."
             )
         invalid_ids = validation.find_invalid_uuids(transaction_ids)
         if invalid_ids:
@@ -127,8 +112,7 @@ def get_transactions(
                 f"transaction_ids must be valid UUIDs; malformed entries: {invalid_ids}"
             )
 
-        # All ID-mode validation is pure and done above — only touch the
-        # connection once we know the input is acceptable.
+        # id mode
         cur = conn.cursor(row_factory=dict_row)
         cur.execute(_IDS_SQL, {"ids": transaction_ids})
         rows = cur.fetchall()
@@ -159,8 +143,7 @@ def get_transactions(
     if note:
         notes.append(note)
 
-    # All filter-mode validation is pure and done above — only touch the
-    # connection once we know the input is acceptable.
+    # filter mode
     cur = conn.cursor(row_factory=dict_row)
     cur.execute(
         _FILTER_SQL,

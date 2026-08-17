@@ -1,18 +1,10 @@
-"""Parameterized SQL aggregation over transactions for "counting" questions.
+"""Parameterized SQL aggregation over transactions for "counting" questions
 
-query_stats answers questions like "how many card failures in the last 30
-minutes, broken down by gateway?" with a single windowed SELECT. It is the
-pure core of the MCP query_stats tool: it takes an existing psycopg connection
-(server.py owns opening/closing), issues only SELECTs, and returns a plain
-JSON-serializable dict — so tests can call it inside an uncommitted
-transaction of synthetic rows and roll back afterwards.
+Takes an existing psycopg connection and returns a plain
+JSON-serializable dict so tests can insert transactions
+without disrupting the real data
 
-Injection safety rests on two rules:
-  1. Every caller-supplied VALUE (filter values, window, limit) is passed as
-     a SQL parameter, never interpolated.
-  2. The only strings ever formatted into SQL are column names looked up from
-     _COLUMNS below — caller input selects a whitelist key, it never becomes
-     an identifier itself.
+SQL params are always valided/clamped before being passed in
 """
 
 import psycopg
@@ -20,9 +12,6 @@ from psycopg.rows import dict_row
 
 from mcp_server import validation
 
-# Friendly name -> transactions column. Keys are validated against
-# validation.ALLOWED_COLUMNS before being used to build SQL — only
-# whitelisted keys ever become identifiers here, caller values never do.
 _COLUMNS = {
     "method": "method",
     "status": "status",
@@ -30,8 +19,7 @@ _COLUMNS = {
     "merchant": "merchant",
 }
 
-_MAX_WINDOW_MINUTES = 1440  # 24h — aggregation can reasonably span up to a
-# day of retained data.
+_MAX_WINDOW_MINUTES = 1440 # 24 hours
 _MAX_LIMIT = 100
 
 
@@ -43,16 +31,15 @@ def query_stats(
     metric: str = "count",
     limit: int = 10,
 ) -> dict:
-    """Count (or failure-rate) transactions in the last window_minutes.
+    """Count (or failure-rate) transactions in the last window_minutes
 
     Returns a dict echoing the query parameters plus:
-      - total_events: all rows in the window matching the filters (no limit).
-      - rows: one row per group (ordered by the metric DESC, at most `limit`),
-        or a single overall row when group_by is None. Every row has "count";
-        "failure_rate" appears only when that metric is requested; "group"
-        appears only when group_by is given.
+      - total_events: all rows in the window matching the filters (no limit)
+      - rows: one row per group (ordered by the metric, at most limit).
+        Every row has count. failure_rate appears only when metric is requested.
+        group appears only when group_by is given
       - notes: human-readable notes about any clamping applied to
-        window_minutes/limit (empty list when nothing was clamped).
+        window_minutes/limit (empty list when nothing was clamped)
     """
     filters = dict(filters) if filters else {}
     notes: list[str] = []
@@ -77,8 +64,6 @@ def query_stats(
     if note:
         notes.append(note)
 
-    # WHERE clause shared by both queries. Column names come from _COLUMNS
-    # (never caller input); values ride in params.
     where_parts = ["event_timestamp >= now() - make_interval(mins => %(window_minutes)s)"]
     params: dict = {"window_minutes": window_minutes}
     for key, value in filters.items():
@@ -88,14 +73,10 @@ def query_stats(
 
     select_parts = ['count(*) AS "count"']
     if metric == "failure_rate":
-        # avg over 0/1 ints = failures / total; ::float8 so psycopg returns a
-        # plain float (round(numeric) would come back as Decimal).
         select_parts.append(
             "round(avg((status = 'failure')::int), 4)::float8 AS failure_rate"
         )
 
-    # dict_row at cursor level so any psycopg connection works, not just ones
-    # opened via consumer.db.connect().
     cur = conn.cursor(row_factory=dict_row)
 
     cur.execute(f"SELECT count(*) AS total FROM transactions WHERE {where_sql}", params)

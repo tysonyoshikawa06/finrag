@@ -1,36 +1,18 @@
-"""Ingest-lag freshness for the MCP system_freshness tool.
-
-system_freshness is the pure core of the MCP tool: unlike stats.py/semantic.py
-it does not accept (or open) a psycopg connection at all. The percentile math
-already lives in consumer/freshness.py::query_freshness(), which opens and
-closes its own connection internally — this module simply translates
-window_minutes into the interval string that function expects, calls it, and
-reshapes the result into a plain JSON-serializable dict. No SQL and no
-percentile computation happens here; that would duplicate consumer/freshness.py
-rather than reuse it.
+"""Ingest-lag freshness for the MCP system_freshness tool
+allowing the LLM to verify citaton recency
 """
 
 from consumer.freshness import query_freshness
 from mcp_server import validation
 
-# Kept tight (1h) because this tool describes *recent* ingest lag, not a long
-# historical window — freshness is a "now" metric, long windows stop meaning
-# current.
 _MAX_WINDOW_MINUTES = 60
 
 
 def system_freshness(window_minutes: int = 5) -> dict:
-    """Report ingest-lag percentiles over the last window_minutes.
+    """Report ingest-lag percentiles over the last window_minutes
 
     Calls consumer.freshness.query_freshness() with window_minutes translated
-    to an interval string (e.g. "5 minutes") and reshapes its result: p50/p95/
-    p99/max become p50_seconds/p95_seconds/p99_seconds/max_seconds, each
-    rounded to 1 decimal place, plus event_count and a short human_readable
-    summary line. When there are no events in the window, query_freshness()
-    returns None — that's not an error, so this returns event_count 0 and all
-    four percentile fields as None with an explanatory human_readable line.
-    Also carries `notes`: a note if window_minutes was clamped to the max
-    (empty list otherwise).
+    to an interval string and reshapes its result
     """
     notes: list[str] = []
     window_minutes, note = validation.clamp_positive_int(

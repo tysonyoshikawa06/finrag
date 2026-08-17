@@ -1,20 +1,17 @@
-"""Semantic (vector) search over failure text for "meaning" questions.
+"""Semantic (vector) search over failure text for "meaning" questions
 
-semantic_search is the pure core of the MCP semantic_search tool: it takes an
-existing psycopg connection and an injected Embedder (server.py owns opening/
-closing the connection and loading the embedder once), validates/bounds its
-own inputs, and delegates the actual embedding, WHERE-clause filtering, and
-exact-scan-vs-HNSW decision entirely to consumer.search.search() — this module
-does not reimplement any of that. It only translates window_minutes into the
-interval string search() expects and reshapes search()'s rows into a plain,
-JSON-serializable dict (ISO 8601 timestamps, floats instead of Decimal).
+Takes an existing psycopg connection and returns a plain
+JSON-serializable dict so tests can insert transactions
+without disrupting the real data
+
+SQL params are always valided/clamped before being passed in
 """
 
 from consumer.embedder import Embedder
 from consumer.search import search
 from mcp_server import validation
 
-_MAX_WINDOW_MINUTES = 1440  # 24h cap
+_MAX_WINDOW_MINUTES = 1440  # 24 hours
 _MAX_K = 50
 _MAX_QUERY_LEN = 2000
 
@@ -28,20 +25,12 @@ def semantic_search(
     k: int = 10,
     exact_scan_threshold: int | None = None,
 ) -> dict:
-    """Find failure-event transactions whose embedded text is closest in meaning to `query`.
+    """Find failure-event transactions whose embedded text is closest in meaning to query
 
-    Embeds `query` via the injected embedder, then calls
-    consumer.search.search() to find the k nearest failure embeddings within
-    the last `window_minutes`, optionally narrowed to a single `gateway`.
-    Returns a dict with the query header plus `matches`, each a plain dict
-    with transaction_id, similarity, embedded_text, event_timestamp (ISO 8601
-    string), gateway, method, amount (float), and status. Also carries
-    `notes`: human-readable notes about any clamping/truncation applied to
-    query/window_minutes/k (empty list when nothing was clamped).
-
-    `exact_scan_threshold` is a test-only passthrough to search() so tests can
-    force the "hnsw" path deterministically; when None it is not passed to
-    search() at all, so search()'s own default applies.
+    - Finds k nearest embeddings
+    - Narrowed down to a single gateway (optional)
+    - exact_scan_threshold is to only be used for forcing an exact scan; defaults
+      to search.py's settings when None
     """
     notes: list[str] = []
 
