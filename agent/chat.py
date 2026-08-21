@@ -1,17 +1,7 @@
 """Interactive CLI chat: multi-turn REPL over the streaming-rag agent.
 
-Unlike agent/ask.py (one question, fresh history, exit), this keeps ONE
-`messages` list alive for the whole process lifetime and reuses it on every
-turn via agent.loop.run_turn - that persistent list is what lets a follow-up
-like "and what about ACH?" resolve against the prior turn instead of needing
-to be restated. The Anthropic API itself is stateless per call; "memory" here
-is nothing more than the growing `messages` list being resent every time,
-which is also why context size (and cost) grows with conversation length -
-see the running token counter below.
-
 Usage:
-    python -m agent.chat
-"""
+    python -m agent.chat"""
 
 import sys
 
@@ -38,7 +28,7 @@ _CONTEXT_WARN_THRESHOLD = 50_000
 
 
 def _format_ctx(tokens: int) -> str:
-    """Render the running context-token total compactly, e.g. '[ctx ~12k tokens]'."""
+    """Render the running context-token total compactly, e.g. '[context ~12k tokens]'."""
     if tokens < 1000:
         return f"[ctx ~{tokens} tokens]"
     return f"[ctx ~{tokens // 1000}k tokens]"

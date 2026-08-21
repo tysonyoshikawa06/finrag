@@ -1,12 +1,7 @@
-"""CLI entry point: ask the streaming-rag agent a single question.
+"""CLI entry point: ask the streaming-rag agent a single question
 
 Usage:
-    python -m agent.ask "How many transactions in the last 10 minutes, by method?"
-
-Runs the question through agent.loop.run_loop end-to-end (including any tool
-calls the model makes along the way) and prints the final answer text. No
-conversation memory across invocations - each call is a fresh question.
-"""
+    python -m agent.ask 'QUESTION'"""
 
 import argparse
 
