@@ -1,16 +1,6 @@
-"""Shared incident-injection and visibility-gating mechanics (Step 19A).
-
-Extracted verbatim from demo/run_demo.py (Step 18A) and parameterized: targets
-and thresholds that run_demo.py always read from its own fixed module
-constants are now function arguments, so eval/run_eval.py can drive arbitrary
-incident targets read from demo/golden_questions.json instead of run_demo.py's
-hardcoded demo targets. The logic itself - polling cadence, threshold
-comparisons, subprocess invocation - is unchanged from run_demo.py; this is a
-pure, behavior-preserving extraction. demo/run_demo.py imports and calls into
-this module with its own existing fixed constants (TARGET_GATEWAY,
-GATEWAY_FAILURE_RATE_THRESHOLD, etc.) so `make demo`'s observable behavior is
-unchanged.
-"""
+"""Injects synthetic incidents into the running producer, then polls the live
+system (via MCP tools) until the incident's signal is actually observable in query
+results before proceeding"""
 
 import json
 import subprocess

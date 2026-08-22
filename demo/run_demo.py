@@ -1,16 +1,12 @@
-"""Scripted demo orchestrator (Step 18A).
+"""Scripted demo orchestrator
 
 Brings the stack up cold if needed, establishes a calm baseline, then walks
 through all three incident types on a fixed, deterministic schedule -
 injecting each one, waiting for its signature to become genuinely observable
 through the MCP tools, then asking the agent (agent.loop.run_loop) a grounded
-question about it. Reuses every existing piece end to end: producer.inject
-for injection, agent.mcp_bridge.MCPBridge for the demo's own readiness
-checks, agent.loop.run_loop for every question asked to the agent. No new
-retrieval, injection, or tool-use logic is built here.
+question about it
 
-Two different kinds of "wait" appear below, and they are NOT the same thing:
-
+Two different kinds of "wait" appear below:
   - The baseline wait (BASELINE_WAIT_SECONDS) is a blind, fixed sleep. There
     is no signal to poll for "nothing is wrong yet" - the absence of an
     anomaly isn't something you can detect early, only something you can
@@ -62,8 +58,7 @@ DOCKER_POLL_INTERVAL_SECONDS = 3
 
 # A cold start needs time for the embedding model to load plus at least one
 # consumer batch commit; a slightly stale environment (e.g. a Kafka topic
-# with leftover backlog from an earlier abandoned producer run) needs more -
-# 90s gives real cold starts headroom without hanging indefinitely.
+# with leftover backlog from an earlier abandoned producer run) needs more
 FRESHNESS_MAX_WAIT_SECONDS = 90
 FRESHNESS_POLL_INTERVAL_SECONDS = 3
 
@@ -74,8 +69,6 @@ BASELINE_WAIT_SECONDS = 30
 # Generous fixed duration so an incident can't expire mid-demo before it is
 # explicitly cleared in step (e) of the incident loop.
 INCIDENT_DURATION = "3m"
-# GATE_POLL_INTERVAL_SECONDS/GATE_MAX_WAIT_SECONDS/POST_CLEAR_PAUSE_SECONDS
-# moved to demo/incident_control.py (Step 19A) - imported above.
 
 # gateway_degradation and novel_error_pattern each use a stronger-than-CLI-default
 # severity/intensity so the injected signal dominates a couple minutes of
